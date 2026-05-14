@@ -21,29 +21,41 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
-        registry-url: 'https://registry.npmjs.org'
+        registry-url: 'https://registry.npmjs.org'   # необходимо для npm publish
 
-    - name: Setup Python 3.11
+    - name: Setup Python 3.11 (for node-gyp)
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
-    - name: Install OPC Core Components
+    - name: Install OPC Core Components from repo zip
       run: |
+        # Распаковка архива
         Expand-Archive -Path "OpcComponents/x64/OPC Core Components Redistributable (x64) 105.1.zip" -DestinationPath "OpcComponents/extracted" -Force
         $msiPath = "OpcComponents/extracted/OPC Core Components Redistributable (x64).msi"
         if (Test-Path $msiPath) {
           Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /qn /norestart /log install.log" -Wait -NoNewWindow
+          Write-Output "OPC Core installed via MSI"
+        } else {
+          Write-Warning "MSI not found; trying setup.exe"
+          $setupPath = "OpcComponents/extracted/setup.exe"
+          if (Test-Path $setupPath) {
+            Start-Process $setupPath -ArgumentList "/S /v/qn REBOOT=ReallySuppress" -Wait -NoNewWindow
+          }
         }
       shell: pwsh
-      continue-on-error: true
+      continue-on-error: true   # не прерывать сборку, если не установилось (возможно, уже есть)
 
     - name: Install dependencies
       run: npm ci
 
     - name: Build addon (.node)
       run: npm run build
-      shell: pwsh    
+      shell: pwsh
+
+    - name: Test build (optional)
+      run: node index.js
+      continue-on-error: true
 
     - name: Upload .node artifact
       uses: actions/upload-artifact@v4
@@ -55,34 +67,49 @@ jobs:
           package.json
         retention-days: 30
 
-    - name: Create release asset
-      if: github.event_name == 'release'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create GitHub Release (if push to main)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: ncipollo/release-action@v1
       with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: build/Release/opcda.node
-        asset_name: opcda-win-x64.node
-        asset_content_type: application/octet-stream
+        tag: v${{ steps.get-version.outputs.version }}
+        name: Release v${{ steps.get-version.outputs.version }}
+        generateReleaseNotes: true
+        token: ${{ secrets.RELEASE_TOKEN }}
+        artifacts: build/Release/opcda.node
+        artifactContentType: application/octet-stream
 
     - name: Publish to npm
-      if: github.event_name == 'push'
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       run: |
-        $LATEST = npm view @amigo909090/opcda-node version 2>$null
+        git config --global user.email "petrovandrey90@yandex.ru"
+        git config --global user.name "Amigo909090"
+
+        # Получаем последнюю версию из npm (или 0.0.0, если пакета ещё нет)
+        $LATEST = npm view @amigo9090/opcda-node version 2>$null
         if (-not $LATEST) { $LATEST = "0.0.0" }
         $NEW_VERSION = npx semver -i patch $LATEST
         echo "New version: $NEW_VERSION"
+
+        # Обновляем package.json и коммитим
         npm version $NEW_VERSION --no-git-tag-version
         git add package.json package-lock.json
         git commit -m "Bump version to $NEW_VERSION"
         git push origin main
+
+        # Удаляем скрипты и dev-зависимости для публикации (опционально)
         jq 'del(.scripts) | del(.devDependencies)' package.json > package_npm.json
         Move-Item -Force package_npm.json package.json
+
+        # Публикуем в npm
         npm publish --access public
+        echo "Published @amigo9090/opcda-node@$NEW_VERSION"
+
+        # Создаём git-тег
         git tag "v$NEW_VERSION"
         git push origin "v$NEW_VERSION"
+
+        # Восстанавливаем package.json
         git checkout -- package.json
       shell: pwsh
