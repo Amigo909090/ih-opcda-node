@@ -1,5 +1,5 @@
 {
-  "name": "opcda-node",
+  "name": "@amigo9090/opcda-node",
   "version": "2.0.0",
   "description": "OPC DA 2.0 wrapper for Node.js using N-API",
   "main": "index.js",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/goodspeed1986/opcda-node.git"
+    "url": "git+https://github.com/Amigo909090/ih-opcda-node.git"
   },
   "keywords": [
     "opc",
@@ -18,7 +18,7 @@
     "napi",
     "x64"
   ],
-  "author": "goodspeed1986",
+  "author": "Amigo909090",
   "license": "MIT",
   "engines": {
     "node": ">=18"

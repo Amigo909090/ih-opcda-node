@@ -1,55 +1,94 @@
 const opcda = require('./build/Release/opcda');
 
-// Init with callback for connection events
-const client = new opcda.OPCDA((event) => {
-  console.log('Connection event:', event.type, event.data);
-  if (event.type === 'init') {
-    console.log('OPCDA initialized');
-  } else if (event.type === 'connect' && event.data.success) {
-    console.log('Connected!');
-    client.createGroup('myGroup', 1000, 0.0);
-    client.addItem('myGroup', '_System._ProjectTitle');
-    // Subscribe to data changes (separate tsfn)
-    client.subscribe('myGroup', (event) => {
-      if (event.type === 'dataChange') {
-        console.log('Value changed:', event.data.data.value);
-      } else if (event.type === 'disconnect') {
-        console.error('Group disconnect:', event.data.error);
-      }
-    }, ['dataChange', 'disconnect']);
-  } else if (event.type === 'disconnect') {
-    console.error('Disconnected:', event.data.error);
-    // Auto-reconnect? client.connect('localhost', 'Kepware.KEPServerEX.V6');
-  }
-});
+if (!opcda || !opcda.OPCDA) {
+    console.error('Failed to load OPCDA module');
+    process.exit(1);
+}
 
-// Connect (events go to init callback)
-client.connect('localhost', 'Kepware.KEPServerEX.V6');
+console.log('OPCDA module loaded');
 
-// Example: Browse
-client.browse('').then(items => {
-  console.log('Browsed items:', items);
-});
+let client;
+try {
+    // Создаём экземпляр, передавая callback для всех событий
+    client = new opcda.OPCDA((event) => {
+        console.log('Event:', event.type, event.data);
+        if (event.type === 'connect') {
+            if (event.data.success) {
+                console.log('✅ Connected to OPC server!');
+                // После успешного подключения создаём группу, добавляем теги и подписываемся
+                (async () => {
+                    try {
+                        // Создаём группу (синхронно)
+                        client.createGroup('myGroup', 1000, 0.0);
+                        console.log('Group created');
 
-// Example: Read
-client.read('_System._ProjectTitle').then(value => {
-  console.log('Read value:', value);
-});
+                        // Добавляем теги (синхронно)
+                        const tags = [
+                            'StringValue',
+                            'BooleanValue',
+                            'ShortIntValue',
+                            'IntegerValue',
+                            'DoubleValue',
+                            'DateTimeValue'
+                        ];
+                        for (const tag of tags) {
+                            client.addItem('myGroup', tag);
+                            console.log(`Item added: ${tag}`);
+                        }
 
-// Example: Write
-client.write('Some.Item', 42).then(() => {
-  console.log('Write OK');
-});
+                        // Подписываемся на изменения (синхронно)
+                        // callback игнорируется, все dataChange приходят в основной callback
+                        client.subscribe('myGroup', () => {}, ['dataChange']);
+                        console.log('Subscribed to group events');
 
-// Unsubscribe example
-// client.unsubscribe('myGroup', ['dataChange']);
-// client.unsubscribeConnection(); // For init tsfn
+                        // Асинхронное чтение
+                        const value = await client.read('StringValue');
+                        console.log('Read StringValue:', value);
 
-// Graceful shutdown
+                        // Асинхронная запись
+                        await client.write('IntegerValue', 12345);
+                        console.log('Write to IntegerValue OK');
+
+                        // Чтение после записи
+                        const newValue = await client.read('IntegerValue');
+                        console.log('Read IntegerValue after write:', newValue);
+                    } catch (err) {
+                        console.error('Error during setup:', err);
+                    }
+                })();
+            } else {
+                console.error('❌ Connection failed:', event.data.error);
+            }
+        } else if (event.type === 'disconnect') {
+            console.log('Disconnected from server');
+        } else if (event.type === 'dataChange') {
+            // event.data содержит объект с именами тегов и их значениями
+            console.log('Data change:', event.data);
+        }
+    });
+    console.log('OPCDA instance created');
+} catch (err) {
+    console.error('Failed to create OPCDA instance:', err);
+    process.exit(1);
+}
+
+// Подключаемся к серверу
+console.log('Connecting to localhost with progId opcserversim.Instance.1...');
+try {
+    client.connect('localhost', 'opcserversim.Instance.1');
+} catch (err) {
+    console.error('Connect call failed:', err);
+}
+
+// Обработка выхода
 process.on('SIGINT', () => {
-  client.disconnect();
-  client.unsubscribeConnection();
-  process.exit(0);
+    console.log('Shutting down...');
+    try {
+        client.disconnect();
+    } catch (err) {
+        console.error('Error during disconnect:', err);
+    }
+    process.exit(0);
 });
 
 console.log('OPC DA client started');

@@ -2,40 +2,36 @@
   "targets": [
     {
       "target_name": "opcda",
-      "sources": [ "src/opcda.cpp" ],
+      "sources": [ "src/opcda.cpp" ],      
       "include_dirs": [
-        "include",
         "<!@(node -p \"require('node-addon-api').include\")",
-        "<!@(node -p \"require('node-addon-api').include_dir\")",
-        "<!(node -p \"process.env.npm_config_nodedir + '/include/node'\")"
+        "<(module_root_dir)/include",        
+        "src"
       ],
-      "dependencies": [
-        "<!(node -p \"require('node-addon-api').gyp\")"
-      ],
-      "cflags_cc": [ "-std=c++17" ],
+      "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS", "_CRT_SECURE_NO_WARNINGS"],
+      "cflags": ["-Wall", "-Wno-unused-parameter"],
+      "cflags_cc": ["-Wall", "-Wno-unused-parameter", "-std=c++17", "-fexceptions"],
       "conditions": [
-        ['OS=="win"', {
+        ["OS=='win' and target_arch=='x64'", {          
           "msvs_settings": {
             "VCCLCompilerTool": {
-              "ExceptionHandling": "2",
-              "DisableSpecificWarnings": [ "4530", "4506", "4996", "6386" ],
-              "AdditionalOptions": [ "/std:c++17", "/EHsc" ]
-            },
-            "VCLinkerTool": {
-              "AdditionalOptions": [ "/HIGHENTROPYVA:NO" ],
-              "AdditionalDependencies": [ 
-                "OPCClientToolKit64.lib",
-                "ole32.lib",
-                "oleaut32.lib",
-                "rpcrt4.lib"
-              ],
-              "AdditionalLibraryDirectories": [ "lib/x64" ]
+              "ExceptionHandling": 1,
+              "DisableSpecificWarnings": [ "4530", "4506", "4996", "6386" ], 
+              "RuntimeLibrary": "0",            
+              "AdditionalOptions": ["/std:c++17", "/EHa"]
             }
           },
-          "defines": [ "_CRT_SECURE_NO_WARNINGS" ]
+          "libraries": [
+            "<(module_root_dir)/lib/x64/OPCClientToolKit64.lib",
+            "ole32.lib",            
+            "oleaut32.lib",
+            "rpcrt4.lib",
+            "ws2_32.lib",
+            "advapi32.lib",
+            "atls.lib" 
+          ]
         }]
-      ],
-      "libraries": [ "lib/x64/OPCClientToolKit64.lib" ]
+      ]
     }
   ]
 }

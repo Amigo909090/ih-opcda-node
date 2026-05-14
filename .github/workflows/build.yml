@@ -21,48 +21,31 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
 
-    - name: Setup Python 3.11 (for node-gyp)
+    - name: Setup Python 3.11
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
-    - name: Install OPC Core Components from repo zip (early, before deps)
+    - name: Install OPC Core Components
       run: |
-        # Unzip OPC Core zip from repo
         Expand-Archive -Path "OpcComponents/x64/OPC Core Components Redistributable (x64) 105.1.zip" -DestinationPath "OpcComponents/extracted" -Force
-        # Install MSI silent (prefer msiexec over setup.exe for automation)
         $msiPath = "OpcComponents/extracted/OPC Core Components Redistributable (x64).msi"
         if (Test-Path $msiPath) {
           Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /qn /norestart /log install.log" -Wait -NoNewWindow
-          Write-Output "OPC Core installed via MSI"
-        } else {
-          Write-Error "MSI not found in zip; trying setup.exe"
-          $setupPath = "OpcComponents/extracted/setup.exe"
-          if (Test-Path $setupPath) {
-            Start-Process $setupPath -ArgumentList "/S /v/qn REBOOT=ReallySuppress" -Wait -NoNewWindow
-          }
-        }
-        # Verify install (optional)
-        if (Test-Path "C:\Program Files (x64)\Common Files\OPC Foundation") {
-          Write-Output "OPC Core verified"
-        } else {
-          Write-Warning "OPC Core path not found; may need manual"
         }
       shell: pwsh
-      continue-on-error: true  # Proceed if install fails (headers may be partial)
+      continue-on-error: true
 
     - name: Install dependencies
       run: npm ci
 
-    - name: Build addon (.node)
+    - name: Build addon
       run: node-gyp rebuild
       shell: pwsh
-      env:
-        VCTargetsPath: "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\Enterprise\\Common7\\Tools\\../../VC/Auxiliary/Build/"
-        npm_config_nodedir: ${{ env.NVM_DIR }}/v${{ steps.setup-node.outputs.node-version }}
 
-    - name: Test build (optional)
+    - name: Test build
       run: node index.js
       continue-on-error: true
 
@@ -76,7 +59,7 @@ jobs:
           package.json
         retention-days: 30
 
-    - name: Create release asset (if release)
+    - name: Create release asset
       if: github.event_name == 'release'
       uses: actions/upload-release-asset@v1
       env:
@@ -86,3 +69,24 @@ jobs:
         asset_path: build/Release/opcda.node
         asset_name: opcda-win-x64.node
         asset_content_type: application/octet-stream
+
+    - name: Publish to npm
+      if: github.event_name == 'push'
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      run: |
+        $LATEST = npm view @amigo909090/opcda-node version 2>$null
+        if (-not $LATEST) { $LATEST = "0.0.0" }
+        $NEW_VERSION = npx semver -i patch $LATEST
+        echo "New version: $NEW_VERSION"
+        npm version $NEW_VERSION --no-git-tag-version
+        git add package.json package-lock.json
+        git commit -m "Bump version to $NEW_VERSION"
+        git push origin main
+        jq 'del(.scripts) | del(.devDependencies)' package.json > package_npm.json
+        Move-Item -Force package_npm.json package.json
+        npm publish --access public
+        git tag "v$NEW_VERSION"
+        git push origin "v$NEW_VERSION"
+        git checkout -- package.json
+      shell: pwsh
