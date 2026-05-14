@@ -43,11 +43,7 @@ jobs:
 
     - name: Build addon (.node)
       run: npm run build
-      shell: pwsh
-
-    - name: Test build (optional)
-      run: node index.js
-      continue-on-error: true
+      shell: pwsh    
 
     - name: Upload .node artifact
       uses: actions/upload-artifact@v4
