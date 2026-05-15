@@ -21,7 +21,7 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
-        registry-url: 'https://registry.npmjs.org'   # необходимо для npm publish
+        registry-url: 'https://registry.npmjs.org'
 
     - name: Setup Python 3.11 (for node-gyp)
       uses: actions/setup-python@v5
@@ -30,7 +30,6 @@ jobs:
 
     - name: Install OPC Core Components from repo zip
       run: |
-        # Распаковка архива
         Expand-Archive -Path "OpcComponents/x64/OPC Core Components Redistributable (x64) 105.1.zip" -DestinationPath "OpcComponents/extracted" -Force
         $msiPath = "OpcComponents/extracted/OPC Core Components Redistributable (x64).msi"
         if (Test-Path $msiPath) {
@@ -44,14 +43,18 @@ jobs:
           }
         }
       shell: pwsh
-      continue-on-error: true   # не прерывать сборку, если не установилось (возможно, уже есть)
+      continue-on-error: true
 
     - name: Install dependencies
       run: npm ci
 
     - name: Build addon (.node)
       run: npm run build
-      shell: pwsh   
+      shell: pwsh
+
+    - name: Test build (optional)
+      run: node index.js
+      continue-on-error: true
 
     - name: Upload .node artifact
       uses: actions/upload-artifact@v4
@@ -63,13 +66,19 @@ jobs:
           package.json
         retention-days: 30
 
+    - name: Get version from package.json
+      id: get_version
+      run: echo "VERSION=$(node -p "require('./package.json').version")" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
     - name: Create GitHub Release (if push to main)
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: ncipollo/release-action@v1
       with:
-        tag: v${{ steps.get-version.outputs.version }}
-        name: Release v${{ steps.get-version.outputs.version }}
+        tag: v${{ steps.get_version.outputs.VERSION }}
+        name: Release v${{ steps.get_version.outputs.VERSION }}
         generateReleaseNotes: true
+        skipIfReleaseExists: true
         token: ${{ secrets.RELEASE_TOKEN }}
         artifacts: build/Release/opcda.node
         artifactContentType: application/octet-stream
@@ -82,30 +91,28 @@ jobs:
         git config --global user.email "petrovandrey90@yandex.ru"
         git config --global user.name "Amigo909090"
 
-        # Получаем последнюю версию из npm (или 0.0.0, если пакета ещё нет)
         $LATEST = npm view @amigo9090/opcda-node version 2>$null
         if (-not $LATEST) { $LATEST = "0.0.0" }
         $NEW_VERSION = npx semver -i patch $LATEST
         echo "New version: $NEW_VERSION"
 
-        # Обновляем package.json и коммитим
         npm version $NEW_VERSION --no-git-tag-version
         git add package.json package-lock.json
         git commit -m "Bump version to $NEW_VERSION"
         git push origin main
 
-        # Удаляем скрипты и dev-зависимости для публикации (опционально)
-        jq 'del(.scripts) | del(.devDependencies)' package.json > package_npm.json
+        # Удаление scripts и devDependencies через PowerShell (без jq)
+        $package = Get-Content package.json -Raw | ConvertFrom-Json
+        $package.PSObject.Properties.Remove('scripts')
+        $package.PSObject.Properties.Remove('devDependencies')
+        $package | ConvertTo-Json -Depth 10 | Set-Content package_npm.json
         Move-Item -Force package_npm.json package.json
 
-        # Публикуем в npm
         npm publish --access public
         echo "Published @amigo9090/opcda-node@$NEW_VERSION"
 
-        # Создаём git-тег
         git tag "v$NEW_VERSION"
         git push origin "v$NEW_VERSION"
 
-        # Восстанавливаем package.json
         git checkout -- package.json
       shell: pwsh
