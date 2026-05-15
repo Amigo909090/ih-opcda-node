@@ -38,7 +38,8 @@ try {
 
                         // Подписываемся на изменения (синхронно)
                         // callback игнорируется, все dataChange приходят в основной callback
-                        client.subscribe('myGroup', () => {}, ['dataChange']);
+                        //client.subscribe('myGroup', () => {}, ['dataChange']);
+                        client.subscribe('myGroup');
                         console.log('Subscribed to group events');
 
                         // Асинхронное чтение

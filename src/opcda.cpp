@@ -646,8 +646,8 @@ Napi::Value OPCDA::AddItem(const Napi::CallbackInfo& info) {
 
 Napi::Value OPCDA::Subscribe(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (info.Length() < 2 || !info[0].IsString()) {
-        Napi::TypeError::New(env, "groupName, callback expected").ThrowAsJavaScriptException();
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "groupName expected").ThrowAsJavaScriptException();
         return env.Undefined();
     }
     std::string groupName = info[0].As<Napi::String>().Utf8Value();
