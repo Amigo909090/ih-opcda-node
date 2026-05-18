@@ -17,7 +17,7 @@
     "include_dirs": [],
     "libraries": [],
     "msbuild_toolset": "v143",
-    "msvs_windows_target_platform_version": "10.0.22621.0"
+    "msvs_windows_target_platform_version": "10.0.26100.0"
   },
   "variables": {
     "asan": 0,

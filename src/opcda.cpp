@@ -28,6 +28,27 @@ DEFINE_GUID(IID_IOPCDataCallback, 0x39c13a70, 0x011e, 0x11d0, 0x96, 0x75, 0x00, 
 DEFINE_GUID(IID_IOPCBrowseServerAddressSpace, 0x39c13a4f, 0x011e, 0x11d0, 0x96, 0x75, 0x00, 0x20, 0xaf, 0xd8, 0xad, 0xb3);
 DEFINE_GUID(IID_IConnectionPointContainer, 0xB196B284, 0xBAB4, 0x101A, 0xB6, 0x9C, 0x00, 0xAA, 0x00, 0x34, 0x1D, 0x07);
 DEFINE_GUID(IID_IConnectionPoint, 0xB196B286, 0xBAB4, 0x101A, 0xB6, 0x9C, 0x00, 0xAA, 0x00, 0x34, 0x1D, 0x07);
+DEFINE_GUID(IID_IOPCItemIO, 0x85C0B427, 0x2893, 0x4cbc, 0xBD, 0x78, 0xE5, 0xFC, 0x51, 0x46, 0xF0, 0x8F);
+
+static std::string VarTypeToString(VARTYPE vt) {
+    switch (vt) {
+        case VT_EMPTY: return "empty";
+        case VT_NULL: return "null";
+        case VT_I2: return "short";
+        case VT_I4: return "long";
+        case VT_R4: return "float";
+        case VT_R8: return "double";
+        case VT_BOOL: return "boolean";
+        case VT_BSTR: return "string";
+        case VT_DATE: return "datetime";
+        case VT_UI1: return "byte";
+        case VT_UI2: return "ushort";
+        case VT_UI4: return "ulong";
+        case VT_I8: return "int64";
+        case VT_UI8: return "uint64";
+        default: return "unknown";
+    }
+}
 
 static Napi::Value VariantToNapi(Napi::Env env, VARIANT* var) {
     if (!var) return env.Null();
@@ -85,7 +106,17 @@ STDMETHODIMP_(ULONG) OPCDA::DataCallback::Release() {
     return ref;
 }
 
-STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup,
+static int64_t FileTimeToUnixMs(const FILETIME& ft) {
+    ULARGE_INTEGER uli;
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    // 100-нс интервалы с 1601 -> Unix миллисекунды
+    const int64_t EPOCH_DIFF = 116444736000000000LL; // 1601 to 1970 in 100ns
+    int64_t ns100 = static_cast<int64_t>(uli.QuadPart) - EPOCH_DIFF;
+    return ns100 / 10000; // 100ns -> ms
+}
+
+/*STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup,
     HRESULT hrMasterquality, HRESULT hrMastererror, DWORD dwCount,
     OPCHANDLE* phClientItems, VARIANT* pvValues, WORD* pwQualities,
     FILETIME* pftTimeStamps, HRESULT* pErrors) {
@@ -132,7 +163,64 @@ STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup
     });
     
     return S_OK;
+}*/
+STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup,
+    HRESULT hrMasterquality, HRESULT hrMastererror, DWORD dwCount,
+    OPCHANDLE* phClientItems, VARIANT* pvValues, WORD* pwQualities,
+    FILETIME* pftTimeStamps, HRESULT* pErrors) {
+    
+    struct ItemData {
+        std::string name;
+        VARIANT value;
+        WORD quality;
+        int64_t timestamp;
+    };
+    std::vector<ItemData> items;
+    items.reserve(dwCount);
+    
+    {
+        std::lock_guard<std::recursive_mutex> lock(owner_->mtx_);
+        auto git = owner_->groups_.find(groupName_);
+        if (git != owner_->groups_.end()) {
+            for (DWORD i = 0; i < dwCount; ++i) {
+                OPCHANDLE hClient = phClientItems[i];
+                auto it = git->second.clientHandles.find(hClient);
+                if (it != git->second.clientHandles.end()) {
+                    VARIANT varCopy;
+                    VariantInit(&varCopy);
+                    VariantCopy(&varCopy, &pvValues[i]);
+                    items.push_back({it->second, varCopy, pwQualities[i],
+                                     FileTimeToUnixMs(pftTimeStamps[i])});
+                }
+            }
+        }
+    }
+    
+    tsfn_.NonBlockingCall([items, groupName = groupName_](Napi::Env env, Napi::Function cb) {
+        Napi::HandleScope scope(env);
+        try {
+            Napi::Object event = Napi::Object::New(env);
+            event.Set("type", Napi::String::New(env, "dataChange"));
+            event.Set("group", Napi::String::New(env, groupName));
+            Napi::Object data = Napi::Object::New(env);
+            for (const auto& item : items) {
+                Napi::Object valObj = Napi::Object::New(env);
+                valObj.Set("value", VariantToNapi(env, const_cast<VARIANT*>(&item.value)));
+                valObj.Set("quality", Napi::Number::New(env, item.quality));
+                valObj.Set("timestamp", Napi::Number::New(env, (double)item.timestamp));
+                data.Set(item.name, valObj);
+                VariantClear(const_cast<VARIANT*>(&item.value));
+            }
+            event.Set("data", data);
+            cb.Call({event});
+        } catch (const std::exception& e) {
+            fprintf(stderr, "Exception in dataChange callback: %s\n", e.what());
+        }
+    });
+    return S_OK;
 }
+
+
 
 // ----------------------------------------------------------------------------
 // OPCDA methods
@@ -200,6 +288,9 @@ void OPCDA::Cleanup() {
     }
     connected_ = false;
 }
+
+
+
 
 // ----------------------------------------------------------------------------
 // Вспомогательная функция получения IOPCSyncIO для элемента
@@ -291,23 +382,28 @@ void OPCDA::ReadWorker::Execute() {
         errorMsg_ = "CoInitializeEx failed";
         return;
     }
+
     OPCHANDLE hServer = op_->FindItemHandle(itemName_);
     if (!hServer) {
         errorMsg_ = "Item not found";
         CoUninitialize();
         return;
     }
+
     IOPCSyncIO* pSyncIO = op_->GetSyncIOForItem(itemName_);
     if (!pSyncIO) {
         errorMsg_ = "Cannot get IOPCSyncIO";
         CoUninitialize();
         return;
     }
+
     OPCITEMSTATE* pState = nullptr;
     HRESULT* pErrors = nullptr;
     hr = pSyncIO->Read(OPC_DS_CACHE, 1, &hServer, &pState, &pErrors);
     if (SUCCEEDED(hr)) {
         VariantCopy(&value_, &pState->vDataValue);
+        quality_ = pState->wQuality;
+        timestamp_ = pState->ftTimeStamp;
         VariantClear(&pState->vDataValue);
         CoTaskMemFree(pState);
         CoTaskMemFree(pErrors);
@@ -324,7 +420,11 @@ void OPCDA::ReadWorker::OnOK() {
     Napi::HandleScope scope(env);
     try {
         if (success_) {
-            deferred_.Resolve(VariantToNapi(env, &value_));
+            Napi::Object result = Napi::Object::New(env);
+            result.Set("value", VariantToNapi(env, &value_));
+            result.Set("quality", Napi::Number::New(env, quality_));
+            result.Set("timestamp", Napi::Number::New(env, (double)FileTimeToUnixMs(timestamp_)));
+            deferred_.Resolve(result);
         } else {
             deferred_.Reject(Napi::Error::New(env, errorMsg_).Value());
         }
@@ -444,6 +544,27 @@ void OPCDA::WriteWorker::OnError(const Napi::Error& e) {
 OPCDA::BrowseWorker::BrowseWorker(Napi::Env env, OPCDA* op, const std::string& starting, Napi::Promise::Deferred deferred)
     : Napi::AsyncWorker(env), op_(op), starting_(starting), deferred_(deferred), success_(false) {}
 
+class BrowseWorker : public Napi::AsyncWorker {
+public:
+    BrowseWorker(Napi::Env env, OPCDA* op, const std::string& starting, Napi::Promise::Deferred deferred);
+    void Execute() override;
+    void OnOK() override;
+    void OnError(const Napi::Error& e) override;
+private:
+    OPCDA* op_;
+    std::string starting_;
+    Napi::Promise::Deferred deferred_;
+    struct ItemInfo {
+        std::string name;
+        VARIANT value;
+        WORD quality;
+        int64_t timestamp;
+    };
+    std::vector<ItemInfo> items_;
+    bool success_;
+    std::string errorMsg_;
+};
+
 void OPCDA::BrowseWorker::Execute() {
     HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (FAILED(hr)) {
@@ -455,6 +576,8 @@ void OPCDA::BrowseWorker::Execute() {
         CoUninitialize();
         return;
     }
+
+    // 1. Получить список имён элементов
     IOPCBrowseServerAddressSpace* pBrowse = nullptr;
     hr = op_->pServer_->QueryInterface(IID_IOPCBrowseServerAddressSpace, (void**)&pBrowse);
     if (FAILED(hr)) {
@@ -464,21 +587,108 @@ void OPCDA::BrowseWorker::Execute() {
     }
     IEnumString* pEnum = nullptr;
     hr = pBrowse->BrowseOPCItemIDs(OPC_FLAT, L"", VT_EMPTY, 0, &pEnum);
-    if (SUCCEEDED(hr) && pEnum) {
-        LPOLESTR szItem;
-        ULONG fetched;
-        while (pEnum->Next(1, &szItem, &fetched) == S_OK) {
-            char buffer[256];
-            WideCharToMultiByte(CP_UTF8, 0, szItem, -1, buffer, sizeof(buffer), NULL, NULL);
-            items_.push_back(buffer);
-            CoTaskMemFree(szItem);
-        }
-        pEnum->Release();
-        success_ = true;
-    } else {
-        errorMsg_ = "Browse failed";
+    if (FAILED(hr) || !pEnum) {
+        errorMsg_ = "BrowseOPCItemIDs failed";
+        pBrowse->Release();
+        CoUninitialize();
+        return;
     }
+
+    std::vector<std::string> names;
+    LPOLESTR szItem;
+    ULONG fetched;
+    while (pEnum->Next(1, &szItem, &fetched) == S_OK) {
+        char buffer[256];
+        WideCharToMultiByte(CP_UTF8, 0, szItem, -1, buffer, sizeof(buffer), NULL, NULL);
+        names.push_back(buffer);
+        CoTaskMemFree(szItem);
+    }
+    pEnum->Release();
     pBrowse->Release();
+
+    if (names.empty()) {
+        success_ = true;
+        CoUninitialize();
+        return;
+    }
+
+    // 2. Создать временную группу с уникальным именем
+    char tempGroupName[64];
+    sprintf_s(tempGroupName, "TempBrowseGroup_%u_%u", GetCurrentThreadId(), GetTickCount());
+    IOPCItemMgt* pTempGroup = nullptr;
+    OPCHANDLE hServerGroup;
+    DWORD revisedRate;
+    hr = op_->pServer_->AddGroup(
+        std::wstring(tempGroupName, tempGroupName + strlen(tempGroupName)).c_str(),
+        TRUE, 1000, 0, NULL, NULL, 0,
+        &hServerGroup, &revisedRate, IID_IOPCItemMgt, (IUnknown**)&pTempGroup);
+    if (FAILED(hr) || !pTempGroup) {
+        errorMsg_ = "Failed to create temporary group";
+        CoUninitialize();
+        return;
+    }
+
+    // 3. Добавить элементы во временную группу
+    std::vector<OPCHANDLE> serverHandles(names.size());
+    std::vector<OPCITEMDEF> defs(names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+        std::wstring wname(names[i].begin(), names[i].end());
+        defs[i].szItemID = const_cast<LPWSTR>(wname.c_str());
+        defs[i].bActive = TRUE;
+        defs[i].hClient = (OPCHANDLE)(i + 1);
+        defs[i].vtRequestedDataType = VT_EMPTY; // сервер выберет сам
+    }
+    OPCITEMRESULT* pResults = nullptr;
+    HRESULT* pErrors = nullptr;
+    hr = pTempGroup->AddItems((DWORD)names.size(), defs.data(), &pResults, &pErrors);
+    if (FAILED(hr)) {
+        errorMsg_ = "AddItems failed";
+        pTempGroup->Release();
+        CoUninitialize();
+        return;
+    }
+    for (size_t i = 0; i < names.size(); ++i) {
+        serverHandles[i] = pResults[i].hServer;
+    }
+    CoTaskMemFree(pResults);
+    CoTaskMemFree(pErrors);
+
+    // 4. Получить IOPCSyncIO и читать каждый элемент по отдельности (надёжнее)
+    IOPCSyncIO* pSyncIO = nullptr;
+    hr = pTempGroup->QueryInterface(IID_IOPCSyncIO, (void**)&pSyncIO);
+    if (FAILED(hr) || !pSyncIO) {
+        errorMsg_ = "IOPCSyncIO not supported";
+        pTempGroup->Release();
+        CoUninitialize();
+        return;
+    }
+
+    // Небольшая задержка, чтобы сервер успел прочитать начальные значения
+    Sleep(50);
+
+    for (size_t i = 0; i < names.size(); ++i) {
+        OPCITEMSTATE* pState = nullptr;
+        HRESULT* pReadErrors = nullptr;
+        hr = pSyncIO->Read(OPC_DS_CACHE, 1, &serverHandles[i], &pState, &pReadErrors);
+        if (SUCCEEDED(hr) && pState && pReadErrors && pReadErrors[0] == S_OK) {
+            VARIANT copy;
+            VariantInit(&copy);
+            VariantCopy(&copy, &pState->vDataValue);
+            items_.push_back({names[i], copy, pState->wQuality, FileTimeToUnixMs(pState->ftTimeStamp), copy.vt});
+            VariantClear(&pState->vDataValue);
+            CoTaskMemFree(pState);
+        } else {
+            // Не удалось прочитать – сохраняем пустое значение
+            VARIANT empty;
+            VariantInit(&empty);
+            empty.vt = VT_EMPTY;
+            items_.push_back({names[i], empty, 0, 0, VT_EMPTY});
+        }
+        if (pReadErrors) CoTaskMemFree(pReadErrors);
+    }
+    pSyncIO->Release();
+    pTempGroup->Release();  // группа удаляется вместе с элементами
+    success_ = true;
     CoUninitialize();
 }
 
@@ -486,11 +696,20 @@ void OPCDA::BrowseWorker::OnOK() {
     Napi::Env env = Env();
     Napi::HandleScope scope(env);
     if (success_) {
-        Napi::Array arr = Napi::Array::New(Env(), items_.size());
-        for (size_t i = 0; i < items_.size(); ++i) arr.Set(i, Napi::String::New(Env(), items_[i]));
+        Napi::Array arr = Napi::Array::New(env, items_.size());
+        for (size_t i = 0; i < items_.size(); ++i) {
+            Napi::Object obj = Napi::Object::New(env);
+            obj.Set("name", Napi::String::New(env, items_[i].name));
+            obj.Set("type", Napi::String::New(env, VarTypeToString(items_[i].vt)));
+            obj.Set("value", VariantToNapi(env, &items_[i].value));
+            obj.Set("quality", Napi::Number::New(env, items_[i].quality));
+            obj.Set("timestamp", Napi::Number::New(env, (double)items_[i].timestamp));
+            arr.Set(i, obj);
+            VariantClear(&items_[i].value);
+        }
         deferred_.Resolve(arr);
     } else {
-        deferred_.Reject(Napi::Error::New(Env(), errorMsg_).Value());
+        deferred_.Reject(Napi::Error::New(env, errorMsg_).Value());
     }
 }
 

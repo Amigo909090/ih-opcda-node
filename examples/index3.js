@@ -16,6 +16,18 @@ try {
                 console.log('✅ Connected to OPC server!');
                 (async () => {
                     try {
+                        const browseResult = await client.browse('');
+                        console.log('Browse result:');
+                        for (const item of browseResult) {
+                            console.log(`${item.name}: type=${item.type}, value=${item.value}, quality=${item.quality}, timestamp=${new Date(item.timestamp)}`);
+                        }
+                        // ---- Сканирование (Browse) ----
+                        console.log('Browsing server address space...');
+                        const items = await client.browse('');
+                        console.log(`Found ${items.length} items:`);
+                        console.log(items.slice(0, 20)); // первые 20, чтобы не засорять консоль
+                        if (items.length > 20) console.log('... and more');
+
                         // Создаём группу
                         client.createGroup('myGroup', 1000, 0.0);
                         console.log('Group created');
@@ -38,7 +50,7 @@ try {
                         client.subscribe('myGroup');
                         console.log('Subscribed to group events');
 
-                        // Асинхронное чтение (возвращает объект с value, quality, timestamp)
+                        // Асинхронное чтение
                         const readResult = await client.read('StringValue');
                         console.log('Read StringValue:', readResult);
 
@@ -59,7 +71,6 @@ try {
         } else if (event.type === 'disconnect') {
             console.log('Disconnected from server');
         } else if (event.type === 'dataChange') {
-            // event.data – объект: { "StringValue": { value: "...", quality: 192, timestamp: 1734567890 }, ... }
             console.log('Data change received:');
             for (const [tag, info] of Object.entries(event.data)) {
                 const date = new Date(info.timestamp);
