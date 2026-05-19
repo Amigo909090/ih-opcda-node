@@ -16,51 +16,42 @@ try {
                 console.log('✅ Connected to OPC server!');
                 (async () => {
                     try {
+                        // Первичный просмотр (browse)
                         const browseResult = await client.browse('');
-                        console.log('Browse result:');
-                        for (const item of browseResult) {
-                            console.log(`${item.name}: type=${item.type}, value=${item.value}, quality=${item.quality}, timestamp=${new Date(item.timestamp)}`);
+                        console.log('Browse result (first 20 items):');
+                        for (const item of browseResult.slice(0,20)) {
+                            console.log(`${item.name}: type=${item.type}, value=${item.value}, quality=${item.quality}`);
                         }
-                        // ---- Сканирование (Browse) ----
-                        console.log('Browsing server address space...');
+
+                        // Получаем список всех тегов
                         const items = await client.browse('');
-                        console.log(`Found ${items.length} items:`);
-                        console.log(items.slice(0, 20)); // первые 20, чтобы не засорять консоль
-                        if (items.length > 20) console.log('... and more');
+                        console.log(`Found ${items.length} items. Adding all to group...`);
 
                         // Создаём группу
                         client.createGroup('myGroup', 1000, 0.0);
                         console.log('Group created');
 
-                        // Добавляем теги
-                        const tags = [
-                            'StringValue',
-                            'BooleanValue',
-                            'ShortIntValue',
-                            'IntegerValue',
-                            'DoubleValue',
-                            'DateTimeValue'
-                        ];
-                        for (const tag of tags) {
-                            client.addItem('myGroup', tag);
-                            console.log(`Item added: ${tag}`);
+                        // Добавляем ВСЕ теги
+                        for (const tag of items) {
+                            client.addItem('myGroup', tag.name);
+                            console.log(`Item added: ${tag.name}`);
                         }
 
                         // Подписываемся на изменения
                         client.subscribe('myGroup');
                         console.log('Subscribed to group events');
 
-                        // Асинхронное чтение
+                        // Пример чтения
                         const readResult = await client.read('StringValue');
                         console.log('Read StringValue:', readResult);
 
-                        // Асинхронная запись
-                        await client.write('IntegerValue', 12345);
-                        console.log('Write to IntegerValue OK');
+                        // Запись в TimeValue (строковое значение времени)
+                        await client.write('TimeValue', '12:34:56');
+                        console.log('Write to TimeValue OK');
 
-                        // Чтение после записи
-                        const newValue = await client.read('IntegerValue');
-                        console.log('Read IntegerValue after write:', newValue);
+                        // Проверка записи
+                        const newValue = await client.read('TimeValue');
+                        console.log('Read TimeValue after write:', newValue);
                     } catch (err) {
                         console.error('Error during setup:', err);
                     }
@@ -84,7 +75,7 @@ try {
     process.exit(1);
 }
 
-// Подключаемся к серверу
+// Подключение к серверу
 console.log('Connecting to localhost with progId opcserversim.Instance.1...');
 try {
     client.connect('localhost', 'opcserversim.Instance.1');
