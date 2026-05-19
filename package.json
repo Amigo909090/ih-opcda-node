@@ -1,6 +1,6 @@
 {
   "name": "@amigo9090/opcda-node",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "OPC DA 2.0 wrapper for Node.js using N-API",
   "main": "index.js",
   "scripts": {
