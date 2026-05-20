@@ -45,10 +45,11 @@ try {
                         const readResult = await client.read('StringValue');
                         console.log('Read StringValue:', readResult);
 
-                        
+
                         // Запись в TimeValue (строковое значение времени)
                         await client.write('BooleanValue', '0');
-                        console.log('Write to BooleanValue OK');
+                        console.log('Write to BoolValue OK');
+
 
                         // Проверка записи
                         const newValue = await client.read('BooleanValue');

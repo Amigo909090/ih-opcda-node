@@ -335,10 +335,8 @@ void OPCDA::ReadWorker::OnError(const Napi::Error& e) {
     Napi::HandleScope scope(env);
     deferred_.Reject(e.Value());
 }
-
-
 // ----------------------------------------------------------------------------
-// WriteWorker
+// WriteWorker2
 // ----------------------------------------------------------------------------
 static HRESULT NapiValueToVariant(Napi::Value value, VARIANT& var) {
     VariantInit(&var);
@@ -451,7 +449,7 @@ void OPCDA::WriteWorker::Execute() {
         fprintf(stderr, "WriteWorker: Write succeeded for '%s'\n", itemName_.c_str());
     } else {
         char buf[256];
-        sprintf_s(buf, "Write failed with HRESULT 0x%08lx, pErrors=0x%08lx", hr, pErrors ? pErrors[0] : 0);
+        sprintf_s(buf, "Write failed with HRESULT 0x%08lx, pErrors=0x%08lx", hr, pErrors ? pErrors[0] : 0);        
         errorMsg_ = buf;
         fprintf(stderr, "WriteWorker: %s\n", buf);
     }
@@ -490,7 +488,9 @@ OPCDA::BrowseWorker::BrowseWorker(Napi::Env env, OPCDA* op, const std::string& s
 
 void OPCDA::BrowseWorker::Execute() {
     HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    if (FAILED(hr)) { errorMsg_ = "CoInitializeEx failed"; return; }
+    if (FAILED(hr)) { 
+        errorMsg_ = "CoInitializeEx failed"; return;
+    }
     if (!op_->connected_ || !op_->pServer_) { errorMsg_ = "Not connected"; CoUninitialize(); return; }
 
     IOPCBrowseServerAddressSpace* pBrowse = nullptr;
