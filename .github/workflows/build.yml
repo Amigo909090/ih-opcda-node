@@ -91,28 +91,41 @@ jobs:
         git config --global user.email "petrovandrey90@yandex.ru"
         git config --global user.name "Amigo909090"
 
+        # Получаем последнюю версию из npm
         $LATEST = npm view @amigo9090/opcda-node version 2>$null
         if (-not $LATEST) { $LATEST = "0.0.0" }
         $NEW_VERSION = npx semver -i patch $LATEST
         echo "New version: $NEW_VERSION"
 
+        # Обновляем версию в package.json (без git-тега)
         npm version $NEW_VERSION --no-git-tag-version
         git add package.json package-lock.json
         git commit -m "Bump version to $NEW_VERSION"
         git push origin main
 
-        # Удаление scripts и devDependencies через PowerShell (без jq)
+        # Проверяем, существует ли уже тег
+        $TAG = "v$NEW_VERSION"
+        $TAG_EXISTS = git ls-remote --tags origin | Select-String $TAG
+        if ($TAG_EXISTS) {
+          Write-Host "Tag $TAG already exists, skipping creation"
+        } else {
+          # Удаляем локальный тег, если есть (на случай, если он остался)
+          git tag -d $TAG 2>$null
+          git tag $TAG
+          git push origin $TAG
+        }
+
+        # Подготавливаем package.json для публикации (удаляем scripts и devDependencies)
         $package = Get-Content package.json -Raw | ConvertFrom-Json
         $package.PSObject.Properties.Remove('scripts')
         $package.PSObject.Properties.Remove('devDependencies')
         $package | ConvertTo-Json -Depth 10 | Set-Content package_npm.json
         Move-Item -Force package_npm.json package.json
 
+        # Публикуем в npm
         npm publish --access public
         echo "Published @amigo9090/opcda-node@$NEW_VERSION"
 
-        git tag "v$NEW_VERSION"
-        git push origin "v$NEW_VERSION"
-
+        # Восстанавливаем package.json
         git checkout -- package.json
       shell: pwsh
