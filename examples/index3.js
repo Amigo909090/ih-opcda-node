@@ -20,7 +20,7 @@ try {
                         const browseResult = await client.browse('');
                         console.log('Browse result (first 20 items):');
                         for (const item of browseResult.slice(0,20)) {
-                            console.log(`${item.name}: type=${item.type}, value=${item.value}, quality=${item.quality}`);
+                            console.log(`${item.name}: type=${item.type}`);
                         }
 
                         // Получаем список всех тегов
@@ -46,12 +46,12 @@ try {
                         console.log('Read StringValue:', readResult);
 
                         // Запись в TimeValue (строковое значение времени)
-                        await client.write('TimeValue', '12:34:56');
-                        console.log('Write to TimeValue OK');
+                        await client.write('BooleanValue', '0');
+                        console.log('Write to BooleanValue OK');
 
                         // Проверка записи
-                        const newValue = await client.read('TimeValue');
-                        console.log('Read TimeValue after write:', newValue);
+                        const newValue = await client.read('BooleanValue');
+                        console.log('Read BooleanValue after write:', newValue);
                     } catch (err) {
                         console.error('Error during setup:', err);
                     }
@@ -78,7 +78,8 @@ try {
 // Подключение к серверу
 console.log('Connecting to localhost with progId opcserversim.Instance.1...');
 try {
-    client.connect('localhost', 'opcserversim.Instance.1');
+    //client.connect('localhost', 'opcserversim.Instance.1');
+    client.connect('localhost', '{CAE8D0E1-117B-11D5-924B-11C0F023E91C}');
 } catch (err) {
     console.error('Connect call failed:', err);
 }

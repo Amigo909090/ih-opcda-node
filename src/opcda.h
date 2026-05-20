@@ -112,6 +112,7 @@ private:
         VARIANT value_;
         WORD quality_;
         FILETIME timestamp_;
+        VARTYPE vt_;
         bool success_;
         std::string errorMsg_;
     };
@@ -140,15 +141,8 @@ private:
     private:
         OPCDA* op_;
         std::string starting_;
-        Napi::Promise::Deferred deferred_;
-        struct ItemInfo {
-            std::string name;
-            VARIANT value;
-            WORD quality;
-            int64_t timestamp;
-            VARTYPE vt;
-        };
-        std::vector<ItemInfo> items_;
+        Napi::Promise::Deferred deferred_;       
+        std::vector<std::string> names_;
         bool success_;
         std::string errorMsg_;
     };

@@ -10,16 +10,15 @@
 #include "OPCHost.h"
 #include <eh.h>
 
-// opcda.cpp
 #include "opcda.h"
 #include <initguid.h>
 #include <comdef.h>
 #include <iostream>
 #include <iomanip>
 
-Napi::FunctionReference OPCDA::constructor;  // определение статического поля
+Napi::FunctionReference OPCDA::constructor;
 
-// GUID definitions (from opcda.h)
+// GUID definitions
 DEFINE_GUID(IID_IOPCServer, 0x39c13a4d, 0x011e, 0x11d0, 0x96, 0x75, 0x00, 0x20, 0xaf, 0xd8, 0xad, 0xb3);
 DEFINE_GUID(IID_IOPCItemMgt, 0x39c13a54, 0x011e, 0x11d0, 0x96, 0x75, 0x00, 0x20, 0xaf, 0xd8, 0xad, 0xb3);
 DEFINE_GUID(IID_IOPCSyncIO, 0x39c13a52, 0x011e, 0x11d0, 0x96, 0x75, 0x00, 0x20, 0xaf, 0xd8, 0xad, 0xb3);
@@ -111,60 +110,11 @@ static int64_t FileTimeToUnixMs(const FILETIME& ft) {
     ULARGE_INTEGER uli;
     uli.LowPart = ft.dwLowDateTime;
     uli.HighPart = ft.dwHighDateTime;
-    // 100-нс интервалы с 1601 -> Unix миллисекунды
-    const int64_t EPOCH_DIFF = 116444736000000000LL; // 1601 to 1970 in 100ns
+    const int64_t EPOCH_DIFF = 116444736000000000LL;
     int64_t ns100 = static_cast<int64_t>(uli.QuadPart) - EPOCH_DIFF;
-    return ns100 / 10000; // 100ns -> ms
+    return ns100 / 10000;
 }
 
-/*STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup,
-    HRESULT hrMasterquality, HRESULT hrMastererror, DWORD dwCount,
-    OPCHANDLE* phClientItems, VARIANT* pvValues, WORD* pwQualities,
-    FILETIME* pftTimeStamps, HRESULT* pErrors) {
-    
-    // Собираем данные с именами элементов
-    std::vector<std::pair<std::string, VARIANT>> items;
-    items.reserve(dwCount);
-    
-    {
-        std::lock_guard<std::recursive_mutex> lock(owner_->mtx_);
-        auto git = owner_->groups_.find(groupName_);
-        if (git != owner_->groups_.end()) {
-            for (DWORD i = 0; i < dwCount; ++i) {
-                OPCHANDLE hClient = phClientItems[i];
-                auto it = git->second.clientHandles.find(hClient);
-                if (it != git->second.clientHandles.end()) {
-                    VARIANT varCopy;
-                    VariantInit(&varCopy);
-                    VariantCopy(&varCopy, &pvValues[i]);
-                    items.emplace_back(it->second, varCopy);
-                }
-            }
-        }
-    }
-    
-    // Отправка через TSFN
-    tsfn_.NonBlockingCall([items, groupName = groupName_](Napi::Env env, Napi::Function cb) {
-        Napi::HandleScope scope(env);
-        try {
-            Napi::Object event = Napi::Object::New(env);
-            event.Set("type", Napi::String::New(env, "dataChange"));
-            event.Set("group", Napi::String::New(env, groupName));
-            Napi::Object data = Napi::Object::New(env);
-            for (const auto& item : items) {
-                Napi::Value val = VariantToNapi(env, const_cast<VARIANT*>(&item.second));
-                data.Set(item.first, val);
-                VariantClear(const_cast<VARIANT*>(&item.second));
-            }
-            event.Set("data", data);
-            cb.Call({event});
-        } catch (const std::exception& e) {
-            fprintf(stderr, "Exception in dataChange callback: %s\n", e.what());
-        }
-    });
-    
-    return S_OK;
-}*/
 STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup,
     HRESULT hrMasterquality, HRESULT hrMastererror, DWORD dwCount,
     OPCHANDLE* phClientItems, VARIANT* pvValues, WORD* pwQualities,
@@ -206,7 +156,7 @@ STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup
             Napi::Object data = Napi::Object::New(env);
             for (const auto& item : items) {
                 Napi::Object valObj = Napi::Object::New(env);
-                valObj.Set("value", VariantToNapi(env, const_cast<VARIANT*>(&item.value)));                
+                valObj.Set("value", VariantToNapi(env, const_cast<VARIANT*>(&item.value)));
                 valObj.Set("quality", Napi::Number::New(env, item.quality));
                 valObj.Set("timestamp", Napi::Number::New(env, (double)item.timestamp));
                 data.Set(item.name, valObj);
@@ -221,13 +171,9 @@ STDMETHODIMP OPCDA::DataCallback::OnDataChange(DWORD dwTransid, OPCHANDLE hGroup
     return S_OK;
 }
 
-
-
 // ----------------------------------------------------------------------------
 // OPCDA methods
 // ----------------------------------------------------------------------------
-//Napi::FunctionReference OPCDA::constructor;
-
 Napi::Object OPCDA::Init(Napi::Env env, Napi::Object exports) {
     Napi::Function func = DefineClass(env, "OPCDA", {
         InstanceMethod("connect", &OPCDA::Connect),
@@ -264,7 +210,7 @@ OPCDA::OPCDA(const Napi::CallbackInfo& info) : Napi::ObjectWrap<OPCDA>(info), en
 }
 
 OPCDA::~OPCDA() {
-    Cleanup();  // освобождаем ресурсы
+    Cleanup();
     CoUninitialize();
     tsfn_.Release();
 }
@@ -272,7 +218,6 @@ OPCDA::~OPCDA() {
 void OPCDA::Cleanup() {
     std::lock_guard<std::recursive_mutex> lock(mtx_);
     if (pServer_) {
-        // отключаем подписки
         for (auto& g : groups_) {
             if (g.second.pAsyncIO2) {
                 if (g.second.pConnectionPoint) {
@@ -290,18 +235,14 @@ void OPCDA::Cleanup() {
     connected_ = false;
 }
 
-
-
-
 // ----------------------------------------------------------------------------
-// Вспомогательная функция получения IOPCSyncIO для элемента
+// Вспомогательные функции
 // ----------------------------------------------------------------------------
 IOPCSyncIO* OPCDA::GetSyncIOForItem(const std::string& itemName) {
     std::lock_guard<std::recursive_mutex> lock(mtx_);
     for (auto& g : groups_) {
         if (g.second.itemHandles.count(itemName)) {
             IOPCSyncIO* pSyncIO = nullptr;
-            // Правильный вызов QueryInterface с двумя аргументами
             HRESULT hr = g.second.pItemMgt->QueryInterface(IID_IOPCSyncIO, (void**)&pSyncIO);
             if (SUCCEEDED(hr) && pSyncIO) return pSyncIO;
             break;
@@ -318,56 +259,6 @@ OPCHANDLE OPCDA::FindItemHandle(const std::string& itemName) {
     }
     return 0;
 }
-
-// ----------------------------------------------------------------------------
-// ConnectWorker
-// ----------------------------------------------------------------------------
-/*OPCDA::ConnectWorker::ConnectWorker(Napi::Env env, OPCDA* op, const std::string& progId)
-    : Napi::AsyncWorker(env), op_(op), progId_(progId), success_(false), pServer_(nullptr) {}
-
-void OPCDA::ConnectWorker::Execute() {
-    HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    if (FAILED(hr)) {
-        errorMsg_ = "CoInitializeEx failed";
-        return;
-    }
-    CLSID clsid;
-    hr = CLSIDFromProgID(std::wstring(progId_.begin(), progId_.end()).c_str(), &clsid);
-    if (FAILED(hr)) {
-        errorMsg_ = "CLSIDFromProgID failed";
-        CoUninitialize();
-        return;
-    }
-    hr = CoCreateInstance(clsid, NULL, CLSCTX_LOCAL_SERVER, IID_IOPCServer, (void**)&pServer_);
-    if (FAILED(hr) || !pServer_) {
-        errorMsg_ = "CoCreateInstance failed";
-        CoUninitialize();
-        return;
-    }
-    success_ = true;
-    // keep pServer_ for OnOK
-    // Do not CoUninitialize here because pServer_ will be used later.
-}
-
-void OPCDA::ConnectWorker::OnOK() {
-    if (success_) {
-        std::lock_guard<std::recursive_mutex> lock(op_->mtx_);
-        op_->pServer_ = pServer_;
-        op_->connected_ = true;
-    } else {
-        if (pServer_) pServer_->Release();
-    }
-    Napi::Object data = Napi::Object::New(Env());
-    data.Set("success", Napi::Boolean::New(Env(), success_));
-    if (!success_) data.Set("error", Napi::String::New(Env(), errorMsg_));
-    // Emit event via TSFN
-    op_->tsfn_.NonBlockingCall([data](Napi::Env env, Napi::Function cb) {
-        Napi::Object event = Napi::Object::New(env);
-        event.Set("type", Napi::String::New(env, "connect"));
-        event.Set("data", data);
-        cb.Call({event});
-    });
-}*/
 
 // ----------------------------------------------------------------------------
 // ReadWorker
@@ -405,7 +296,7 @@ void OPCDA::ReadWorker::Execute() {
         VariantCopy(&value_, &pState->vDataValue);
         quality_ = pState->wQuality;
         timestamp_ = pState->ftTimeStamp;
-        //vt_ = pState->vDataValue.vt;
+        vt_ = pState->vDataValue.vt;
         success_ = true;
         VariantClear(&pState->vDataValue);
         CoTaskMemFree(pState);
@@ -425,9 +316,10 @@ void OPCDA::ReadWorker::OnOK() {
     try {
         if (success_) {
             Napi::Object result = Napi::Object::New(env);
-            result.Set("value", VariantToNapi(env, &value_));            
+            result.Set("value", VariantToNapi(env, &value_));
             result.Set("quality", Napi::Number::New(env, quality_));
             result.Set("timestamp", Napi::Number::New(env, (double)FileTimeToUnixMs(timestamp_)));
+            result.Set("type", Napi::String::New(env, VarTypeToString(vt_)));
             deferred_.Resolve(result);
         } else {
             deferred_.Reject(Napi::Error::New(env, errorMsg_).Value());
@@ -444,6 +336,9 @@ void OPCDA::ReadWorker::OnError(const Napi::Error& e) {
     deferred_.Reject(e.Value());
 }
 
+// ----------------------------------------------------------------------------
+// WriteWorker
+// ----------------------------------------------------------------------------
 static HRESULT NapiValueToVariant(Napi::Value value, VARIANT& var) {
     VariantInit(&var);
     if (value.IsUndefined()) { var.vt = VT_EMPTY; return S_OK; }
@@ -463,12 +358,26 @@ static HRESULT NapiValueToVariant(Napi::Value value, VARIANT& var) {
     }
     if (value.IsString()) {
         std::string str = value.As<Napi::String>().Utf8Value();
-        // Попробуем распарсить как время "HH:MM:SS"
+        // Пытаемся распарсить как число
+        char* end;
+        double num = strtod(str.c_str(), &end);
+        if (end != str.c_str() && *end == '\0') {
+            // Строка представляет собой число
+            double intpart;
+            if (std::modf(num, &intpart) == 0.0 && num >= -2147483648.0 && num <= 2147483647.0) {
+                var.vt = VT_I4;
+                var.lVal = (long)num;
+            } else {
+                var.vt = VT_R8;
+                var.dblVal = num;
+            }
+            return S_OK;
+        }
+        // Пытаемся распарсить как время "HH:MM:SS"
         int h, m, s;
         if (sscanf(str.c_str(), "%d:%d:%d", &h, &m, &s) == 3 && h >= 0 && h <= 23 && m >= 0 && m <= 59 && s >= 0 && s <= 59) {
-            // Преобразуем в VT_DATE (доля дня)
             double secondsSinceMidnight = h * 3600.0 + m * 60.0 + s;
-            double dateValue = secondsSinceMidnight / 86400.0; // доля дня
+            double dateValue = secondsSinceMidnight / 86400.0;
             var.vt = VT_DATE;
             var.date = dateValue;
             return S_OK;
@@ -489,9 +398,6 @@ static HRESULT NapiValueToVariant(Napi::Value value, VARIANT& var) {
     return S_FALSE;
 }
 
-// ----------------------------------------------------------------------------
-// WriteWorker (similar)
-// ----------------------------------------------------------------------------
 OPCDA::WriteWorker::WriteWorker(Napi::Env env, OPCDA* op, const std::string& itemName, Napi::Value jsValue, Napi::Promise::Deferred deferred)
     : Napi::AsyncWorker(env), op_(op), itemName_(itemName), jsValue_(jsValue), deferred_(deferred), success_(false) {}
 
@@ -581,33 +487,11 @@ void OPCDA::WriteWorker::OnError(const Napi::Error& e) {
 OPCDA::BrowseWorker::BrowseWorker(Napi::Env env, OPCDA* op, const std::string& starting, Napi::Promise::Deferred deferred)
     : Napi::AsyncWorker(env), op_(op), starting_(starting), deferred_(deferred), success_(false) {}
 
-class BrowseWorker : public Napi::AsyncWorker {
-public:
-    BrowseWorker(Napi::Env env, OPCDA* op, const std::string& starting, Napi::Promise::Deferred deferred);
-    void Execute() override;
-    void OnOK() override;
-    void OnError(const Napi::Error& e) override;
-private:
-    OPCDA* op_;
-    std::string starting_;
-    Napi::Promise::Deferred deferred_;
-    struct ItemInfo {
-        std::string name;
-        VARIANT value;
-        WORD quality;
-        int64_t timestamp;
-    };
-    std::vector<ItemInfo> items_;
-    bool success_;
-    std::string errorMsg_;
-};
-
 void OPCDA::BrowseWorker::Execute() {
     HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (FAILED(hr)) { errorMsg_ = "CoInitializeEx failed"; return; }
     if (!op_->connected_ || !op_->pServer_) { errorMsg_ = "Not connected"; CoUninitialize(); return; }
 
-    // Получаем список имён (как ранее)
     IOPCBrowseServerAddressSpace* pBrowse = nullptr;
     hr = op_->pServer_->QueryInterface(IID_IOPCBrowseServerAddressSpace, (void**)&pBrowse);
     if (FAILED(hr)) { errorMsg_ = "Browse interface not supported"; CoUninitialize(); return; }
@@ -615,82 +499,16 @@ void OPCDA::BrowseWorker::Execute() {
     hr = pBrowse->BrowseOPCItemIDs(OPC_FLAT, L"", VT_EMPTY, 0, &pEnum);
     if (FAILED(hr) || !pEnum) { errorMsg_ = "BrowseOPCItemIDs failed"; pBrowse->Release(); CoUninitialize(); return; }
 
-    std::vector<std::string> names;
     LPOLESTR szItem;
     ULONG fetched;
     while (pEnum->Next(1, &szItem, &fetched) == S_OK) {
         char buffer[256];
         WideCharToMultiByte(CP_UTF8, 0, szItem, -1, buffer, sizeof(buffer), NULL, NULL);
-        names.push_back(buffer);
+        names_.push_back(buffer);
         CoTaskMemFree(szItem);
     }
     pEnum->Release();
     pBrowse->Release();
-
-    // Читаем каждый элемент отдельно
-    for (const std::string& name : names) {
-        // Создаём уникальную временную группу
-        char tempGroupName[64];
-        sprintf_s(tempGroupName, "TempBrowse_%s_%u", name.c_str(), GetTickCount());
-        IOPCItemMgt* pTempGroup = nullptr;
-        OPCHANDLE hServerGroup;
-        DWORD revisedRate;
-        hr = op_->pServer_->AddGroup(
-            std::wstring(tempGroupName, tempGroupName + strlen(tempGroupName)).c_str(),
-            TRUE, 1000, 0, NULL, NULL, 0,
-            &hServerGroup, &revisedRate, IID_IOPCItemMgt, (IUnknown**)&pTempGroup);
-        if (FAILED(hr) || !pTempGroup) {
-            VARIANT empty; VariantInit(&empty); empty.vt = VT_EMPTY;
-            items_.push_back({name, empty, 0, 0, VT_EMPTY});
-            continue;
-        }
-
-        // Добавляем один элемент
-        OPCITEMDEF def = {0};
-        std::wstring wname(name.begin(), name.end());
-        def.szItemID = const_cast<LPWSTR>(wname.c_str());
-        def.bActive = TRUE;
-        def.hClient = 1;
-        OPCITEMRESULT* pResult = nullptr;
-        HRESULT* pErrors = nullptr;
-        hr = pTempGroup->AddItems(1, &def, &pResult, &pErrors);
-        if (FAILED(hr) || !pResult) {
-            pTempGroup->Release();
-            VARIANT empty; VariantInit(&empty); empty.vt = VT_EMPTY;
-            items_.push_back({name, empty, 0, 0, VT_EMPTY});
-            continue;
-        }
-        OPCHANDLE hServer = pResult->hServer;
-        CoTaskMemFree(pResult);
-        CoTaskMemFree(pErrors);
-
-        Sleep(10); // даём серверу время на активацию
-
-        IOPCSyncIO* pSyncIO = nullptr;
-        hr = pTempGroup->QueryInterface(IID_IOPCSyncIO, (void**)&pSyncIO);
-        if (SUCCEEDED(hr) && pSyncIO) {
-            OPCITEMSTATE* pState = nullptr;
-            HRESULT* pReadErrors = nullptr;
-            hr = pSyncIO->Read(OPC_DS_CACHE, 1, &hServer, &pState, &pReadErrors);
-            if (SUCCEEDED(hr) && pState && pReadErrors && pReadErrors[0] == S_OK) {
-                VARIANT copy;
-                VariantInit(&copy);
-                VariantCopy(&copy, &pState->vDataValue);
-                items_.push_back({name, copy, pState->wQuality, FileTimeToUnixMs(pState->ftTimeStamp), copy.vt});
-                VariantClear(&pState->vDataValue);
-                CoTaskMemFree(pState);
-            } else {
-                VARIANT empty; VariantInit(&empty); empty.vt = VT_EMPTY;
-                items_.push_back({name, empty, 0, 0, VT_EMPTY});
-            }
-            CoTaskMemFree(pReadErrors);
-            pSyncIO->Release();
-        } else {
-            VARIANT empty; VariantInit(&empty); empty.vt = VT_EMPTY;
-            items_.push_back({name, empty, 0, 0, VT_EMPTY});
-        }
-        pTempGroup->Release(); // группа удаляется
-    }
     success_ = true;
     CoUninitialize();
 }
@@ -699,16 +517,12 @@ void OPCDA::BrowseWorker::OnOK() {
     Napi::Env env = Env();
     Napi::HandleScope scope(env);
     if (success_) {
-        Napi::Array arr = Napi::Array::New(env, items_.size());
-        for (size_t i = 0; i < items_.size(); ++i) {
+        Napi::Array arr = Napi::Array::New(env, names_.size());
+        for (size_t i = 0; i < names_.size(); ++i) {
             Napi::Object obj = Napi::Object::New(env);
-            obj.Set("name", Napi::String::New(env, items_[i].name));
-            obj.Set("type", Napi::String::New(env, VarTypeToString(items_[i].vt)));
-            obj.Set("value", VariantToNapi(env, &items_[i].value));
-            obj.Set("quality", Napi::Number::New(env, items_[i].quality));
-            obj.Set("timestamp", Napi::Number::New(env, (double)items_[i].timestamp));
+            obj.Set("name", Napi::String::New(env, names_[i]));
+            obj.Set("type", Napi::String::New(env, "empty"));
             arr.Set(i, obj);
-            VariantClear(&items_[i].value);
         }
         deferred_.Resolve(arr);
     } else {
@@ -726,20 +540,27 @@ void OPCDA::BrowseWorker::OnError(const Napi::Error& e) {
 Napi::Value OPCDA::Connect(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     if (info.Length() < 2 || !info[0].IsString() || !info[1].IsString()) {
-        Napi::TypeError::New(env, "host, progId expected").ThrowAsJavaScriptException();
+        Napi::TypeError::New(env, "host, progId/clsid expected").ThrowAsJavaScriptException();
         return env.Undefined();
     }
-    std::string progId = info[1].As<Napi::String>().Utf8Value();
+    std::string host = info[0].As<Napi::String>().Utf8Value(); // не используется
+    std::string idStr = info[1].As<Napi::String>().Utf8Value();
 
     bool success = false;
     std::string errorMsg;
     IOPCServer* pServer = nullptr;
 
     CLSID clsid;
-    HRESULT hr = CLSIDFromProgID(std::wstring(progId.begin(), progId.end()).c_str(), &clsid);
-    if (FAILED(hr)) {
-        errorMsg = "CLSIDFromProgID failed";
+    HRESULT hr = S_OK;
+    // Проверяем, является ли строка CLSID в формате {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}
+    if (idStr.size() >= 38 && idStr.front() == '{' && idStr.back() == '}') {
+        hr = CLSIDFromString(std::wstring(idStr.begin(), idStr.end()).c_str(), &clsid);
+        if (FAILED(hr)) errorMsg = "Invalid CLSID string";
     } else {
+        hr = CLSIDFromProgID(std::wstring(idStr.begin(), idStr.end()).c_str(), &clsid);
+        if (FAILED(hr)) errorMsg = "CLSIDFromProgID failed";
+    }
+    if (SUCCEEDED(hr)) {
         hr = CoCreateInstance(clsid, NULL, CLSCTX_LOCAL_SERVER, IID_IOPCServer, (void**)&pServer);
         if (FAILED(hr) || !pServer) {
             errorMsg = "CoCreateInstance failed";
@@ -754,7 +575,6 @@ Napi::Value OPCDA::Connect(const Napi::CallbackInfo& info) {
         connected_ = true;
     }
 
-    // Отправляем событие через TSFN
     tsfn_.NonBlockingCall([success, errorMsg](Napi::Env env, Napi::Function cb) {
         Napi::HandleScope scope(env);
         try {
@@ -775,16 +595,13 @@ Napi::Value OPCDA::Connect(const Napi::CallbackInfo& info) {
 
 Napi::Value OPCDA::Disconnect(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    Cleanup();  // освобождаем все ресурсы
-
-    // Отправляем событие через TSFN
+    Cleanup();
     tsfn_.NonBlockingCall([](Napi::Env env, Napi::Function cb) {
         Napi::Object event = Napi::Object::New(env);
         event.Set("type", Napi::String::New(env, "disconnect"));
         event.Set("data", Napi::Object::New(env));
         cb.Call({event});
     });
-
     return env.Undefined();
 }
 
@@ -851,7 +668,7 @@ Napi::Value OPCDA::AddItem(const Napi::CallbackInfo& info) {
     std::wstring wItemName(itemName.begin(), itemName.end());
     def.szItemID = const_cast<LPWSTR>(wItemName.c_str());
     def.bActive = TRUE;
-    def.hClient = git->second.nextClientHandle++; // уникальный клиентский хендл
+    def.hClient = git->second.nextClientHandle++;
     OPCITEMRESULT* pResults = nullptr;
     HRESULT* pErrors = nullptr;
     HRESULT hr = git->second.pItemMgt->AddItems(1, &def, &pResults, &pErrors);
@@ -860,7 +677,7 @@ Napi::Value OPCDA::AddItem(const Napi::CallbackInfo& info) {
         return env.Undefined();
     }
     git->second.itemHandles[itemName] = pResults->hServer;
-    git->second.clientHandles[def.hClient] = itemName; // сохраняем соответствие
+    git->second.clientHandles[def.hClient] = itemName;
     CoTaskMemFree(pResults);
     CoTaskMemFree(pErrors);
     return env.Undefined();
@@ -873,7 +690,6 @@ Napi::Value OPCDA::Subscribe(const Napi::CallbackInfo& info) {
         return env.Undefined();
     }
     std::string groupName = info[0].As<Napi::String>().Utf8Value();
-    // callback не используем, все события через общий tsfn
 
     std::lock_guard<std::recursive_mutex> lock(mtx_);
     auto git = groups_.find(groupName);
@@ -881,9 +697,7 @@ Napi::Value OPCDA::Subscribe(const Napi::CallbackInfo& info) {
         Napi::Error::New(env, "Group not found").ThrowAsJavaScriptException();
         return env.Undefined();
     }
-    if (git->second.subscribed) {
-        return env.Undefined(); // уже подписаны
-    }
+    if (git->second.subscribed) return env.Undefined();
     
     IOPCAsyncIO2* pAsyncIO2 = nullptr;
     HRESULT hr = git->second.pItemMgt->QueryInterface(IID_IOPCAsyncIO2, (void**)&pAsyncIO2);
@@ -921,7 +735,6 @@ Napi::Value OPCDA::Subscribe(const Napi::CallbackInfo& info) {
     git->second.advCookie = dwCookie;
     git->second.subscribed = true;
     pAsyncIO2->SetEnable(TRUE);
-    
     return env.Undefined();
 }
 
@@ -934,9 +747,7 @@ Napi::Value OPCDA::Unsubscribe(const Napi::CallbackInfo& info) {
     std::string groupName = info[0].As<Napi::String>().Utf8Value();
     std::lock_guard<std::recursive_mutex> lock(mtx_);
     auto git = groups_.find(groupName);
-    if (git == groups_.end() || !git->second.subscribed) {
-        return env.Undefined();
-    }
+    if (git == groups_.end() || !git->second.subscribed) return env.Undefined();
     git->second.pAsyncIO2->SetEnable(FALSE);
     git->second.pConnectionPoint->Unadvise(git->second.advCookie);
     git->second.pConnectionPoint->Release();
