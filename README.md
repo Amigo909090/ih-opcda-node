@@ -41,14 +41,18 @@ This addon is built with `node-gyp`, provides prebuilt binaries for Windows x64,
 
 3. **No C++ compiler required** on the target machine – prebuilt binary is included.
 
-### Install from npm
+# @amigo9090/opcda-node
+
+Install from npm:
 
 ```bash
 npm install @amigo9090/opcda-node
+```
 
-📖 Usage
-Basic example
+## 📖 Usage
+### Basic example
 
+```javascript
 const opcda = require('@amigo9090/opcda-node');
 
 const client = new opcda.OPCDA((event) => {
@@ -73,7 +77,8 @@ const client = new opcda.OPCDA((event) => {
 
 client.connect('localhost', 'OPC.Simulator.1');
 
-API methods
+```
+## API methods
 Method	Description
 connect(host, progId)	Synchronous – connects to an OPC DA server (e.g. OPC.Simulator.1). Result is reported via the connect event.
 disconnect()	Synchronous – closes the connection.
@@ -84,7 +89,8 @@ unsubscribe(groupName)	Synchronous – disables async notifications.
 read(itemName)	Asynchronous – returns a Promise that resolves with the current value.
 write(itemName, value)	Asynchronous – returns a Promise that resolves when the write is complete.
 browse(startingItem)	Asynchronous – returns a Promise that resolves with an array of all item IDs.
-Events
+
+## Events
 The constructor callback receives an event object with a type field:
 
 connect – event.data.success (boolean), event.data.error (if failed)
@@ -93,40 +99,42 @@ disconnect – event.data is an empty object
 
 dataChange – event.data is an object where keys are item names and values are their current values.
 
-🔧 Building from source (optional)
+## 🔧 Building from source (optional)
 If you need to rebuild the addon (e.g., for debugging or custom modifications):
 
+```bash
 git clone https://github.com/Amigo909090/ih-opcda-node.git
 cd ih-opcda-node
 npm install
 npm run build
+```
 
-Requirements:
+### Requirements:
 
-Windows 10/11, Visual Studio 2022 (with C++ development tools and ATL/MFC)
+- Windows 10/11, Visual Studio 2022 (with C++ development tools and ATL/MFC)
 
-Python 3.11
+- Python 3.11
 
-Node.js 18+
+- Node.js 18+
 
-OPC Core Components (already installed)
+- OPC Core Components (already installed)
 
-📚 Additional Examples
+## 📚 Additional Examples
 See the examples/ folder for more complete usage scenarios.
 
-🤝 Contributing
+## 🤝 Contributing
 Contributions are welcome!
 
-Fork the repository.
+1. Fork the repository.
 
-Create a feature branch.
+2. Create a feature branch.
 
-Submit a pull request with a clear description of your changes.
+3. Submit a pull request with a clear description of your changes.
 
 Please open an issue first to discuss major changes.
 
-📜 License
-This project is licensed under the MIT License – see the LICENSE file for details.
+## 📜 License
+This project is licensed under the MIT License.
 
-💬 Support
-For bugs, questions, or feature requests, please use the GitHub Issues page.
+## 💬 Support
+For bugs, questions, or feature requests, please use the [GitHub Issues page] (https://github.com/Amigo909090/ih-opcda-node/issues).
